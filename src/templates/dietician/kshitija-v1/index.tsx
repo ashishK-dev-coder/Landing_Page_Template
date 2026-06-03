@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useEditMode } from "@/components/visual-editor/EditModeContext";
+import { useThemePreview } from "@/components/templates/ThemePreviewContext";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
 import ThemeStyles from "./ThemeStyles";
@@ -27,15 +28,20 @@ export default function DieticianKshitijaTemplate({
   theme,
 }: TemplateRenderProps) {
   const { isEditMode, visualContent } = useEditMode();
+  const { theme: previewTheme } = useThemePreview();
   const content = (isEditMode ? visualContent : contentProp) as TemplateRenderProps["content"];
+  const activeTheme = isEditMode && previewTheme ? previewTheme : theme;
 
   return (
     <>
       <ThemeStyles
-        primaryColor={theme?.primaryColor}
-        tokens={theme?.tokens ?? null}
+        primaryColor={activeTheme?.primaryColor}
+        tokens={activeTheme?.tokens ?? null}
       />
-      <div className="min-h-full flex flex-col font-sans bg-neutral-50 text-neutral-800">
+      <div
+        className="min-h-full flex flex-col font-sans"
+        style={{ backgroundColor: "var(--page-bg)", color: "var(--page-fg)" }}
+      >
         <Navbar brand={content.brand} nav={content.nav} />
         <motion.main
           initial={{ opacity: 0 }}

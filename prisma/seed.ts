@@ -136,7 +136,7 @@ async function main() {
     { name: "Green", slug: "green", primary: "#16a34a" },
     { name: "Blue", slug: "blue", primary: "#2563eb" },
     { name: "Purple", slug: "purple", primary: "#7c3aed" },
-    { name: "Orange", slug: "orange", primary: "#ea580c" },
+    { name: "Red", slug: "red", primary: "#dc2626" },
     { name: "Teal", slug: "teal", primary: "#0d9488" },
   ];
 
@@ -145,7 +145,12 @@ async function main() {
     const t = themeSlugs[i];
     const theme = await prisma.theme.upsert({
       where: { slug: t.slug },
-      update: {},
+      update: {
+        name: t.name,
+        primaryColor: t.primary,
+        sortOrder: i + 1,
+        status: RecordStatus.ACTIVE,
+      },
       create: {
         name: t.name,
         slug: t.slug,
@@ -157,22 +162,21 @@ async function main() {
     themes.push(theme);
 
     for (let c = 1; c <= 10; c++) {
+      const comboName = getCombinationName(c);
       await prisma.themeCombination.upsert({
         where: {
           themeId_combinationIndex: { themeId: theme.id, combinationIndex: c },
         },
-        update: {},
+        update: {
+          name: `${t.name} — ${comboName}`,
+          tokensJson: buildCombinationTokens(t.primary, c),
+          status: RecordStatus.ACTIVE,
+        },
         create: {
           themeId: theme.id,
-          name: `${t.name} — Combination ${c}`,
+          name: `${t.name} — ${comboName}`,
           combinationIndex: c,
-          tokensJson: {
-            primary: t.primary,
-            secondary: adjustLightness(t.primary, 0.15),
-            accent: adjustLightness(t.primary, -0.1),
-            radius: c <= 3 ? "0.5rem" : c <= 7 ? "0.75rem" : "1rem",
-            fontWeightHeading: c % 2 === 0 ? 700 : 600,
-          },
+          tokensJson: buildCombinationTokens(t.primary, c),
         },
       });
     }
@@ -243,11 +247,80 @@ async function main() {
     },
   });
 
-  console.log("Seed complete: Starter plan, Dietician category, 5 templates, 5 themes × 10 combinations.");
+  console.log("Seed complete: Starter plan, Dietician category, 5 templates, 5 color families × 10 combinations.");
 }
 
-function adjustLightness(hex: string, amount: number): string {
-  return hex;
+function getCombinationName(index: number) {
+  const names = [
+    "Dawn Light",
+    "Warm Light",
+    "Soft Calm",
+    "Balanced",
+    "Muted Rich",
+    "Bold Accent",
+    "Deep Contrast",
+    "Night Calm",
+    "Slate Dark",
+    "Midnight",
+  ];
+  return names[index - 1] ?? `Theme ${index}`;
+}
+
+function hexToRgb(hex: string) {
+  const clean = hex.replace("#", "");
+  const value = clean.length === 3
+    ? clean.split("").map((ch) => ch + ch).join("")
+    : clean;
+  const num = Number.parseInt(value, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  return `#${[r, g, b]
+    .map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function mix(hexA: string, hexB: string, ratio: number) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const r = a.r + (b.r - a.r) * ratio;
+  const g = a.g + (b.g - a.g) * ratio;
+  const bl = a.b + (b.b - a.b) * ratio;
+  return rgbToHex(r, g, bl);
+}
+
+function buildCombinationTokens(primary: string, index: number) {
+  const bgLightRatios = [0.96, 0.92, 0.88, 0.82, 0.74];
+  const bgDarkRatios = [0.86, 0.78, 0.7, 0.62, 0.54];
+  const isDark = index >= 6;
+  const darkStep = Math.max(0, index - 6);
+
+  const pageBg = isDark
+    ? mix("#0b1220", primary, bgDarkRatios[darkStep] ?? 0.54)
+    : mix("#ffffff", primary, bgLightRatios[index - 1] ?? 0.74);
+  const sectionBg = isDark
+    ? mix("#111827", primary, Math.max(0.45, (bgDarkRatios[darkStep] ?? 0.54) - 0.08))
+    : mix("#ffffff", primary, Math.max(0.58, (bgLightRatios[index - 1] ?? 0.74) - 0.22));
+  const mutedBg = isDark
+    ? mix("#1f2937", primary, Math.max(0.4, (bgDarkRatios[darkStep] ?? 0.54) - 0.12))
+    : mix("#f8fafc", primary, Math.max(0.56, (bgLightRatios[index - 1] ?? 0.74) - 0.26));
+
+  return {
+    primary,
+    secondary: mix(primary, isDark ? "#f8fafc" : "#111827", isDark ? 0.18 : 0.22),
+    accent: mix(primary, isDark ? "#ffffff" : "#000000", isDark ? 0.08 : 0.12),
+    pageBg,
+    pageFg: isDark ? "#f8fafc" : "#111827",
+    sectionBg,
+    mutedBg,
+    radius: index <= 3 ? "0.5rem" : index <= 7 ? "0.75rem" : "1rem",
+    fontWeightHeading: index % 2 === 0 ? 700 : 600,
+  };
 }
 
 main()

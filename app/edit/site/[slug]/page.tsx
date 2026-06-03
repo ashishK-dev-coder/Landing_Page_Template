@@ -150,6 +150,12 @@ export default async function EditSitePage({ params, searchParams }: PageProps) 
       isEditMode={isAdmin}
       visualContent={content}
       editContext={{ mode: "site", siteId: site.id }}
+      initialTheme={{
+        themeId: site.themeId ?? null,
+        combinationIndex: site.themeCombination?.combinationIndex ?? null,
+        primaryColor: site.theme?.primaryColor ?? null,
+        tokens: (site.themeCombination?.tokensJson as Record<string, string | number> | null) ?? null,
+      }}
     >
       <TemplateComponent {...props} />
       <FloatingEditNav
