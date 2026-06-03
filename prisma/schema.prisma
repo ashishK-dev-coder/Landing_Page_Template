@@ -1,0 +1,336 @@
+// =============================================================================
+// Landing Page Template Platform — Prisma Schema
+// =============================================================================
+// Product: Agency sells pre-built landing templates. Team selects plan →
+// category → template, edits content (never master), publishes to subdomain
+// or custom domain. One Next.js app renders all sites dynamically from DB.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum SiteStatus {
+  DRAFT // team editing, not public
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DomainVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum TeamMemberRole {
+  ADMIN
+  EDITOR
+  PUBLISHER
+}
+
+// -----------------------------------------------------------------------------
+// Plans — Starter ₹599, Lead Generation, Premium (CRUD, add more later)
+// -----------------------------------------------------------------------------
+
+model Plan {
+  id          String       @id @default(cuid())
+  name        String // e.g. "Starter"
+  slug        String       @unique // e.g. "starter"
+  description String?
+  priceInPaise Int         @map("price_in_paise") // 59900 = ₹599
+  gstPercent  Decimal?     @map("gst_percent") @db.Decimal(5, 2)
+  features    Json? // bullet list for pricing page
+  sortOrder   Int          @default(0) @map("sort_order")
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  categories Category[]
+  sites      Site[]
+
+  @@index([status, sortOrder])
+  @@map("plans")
+}
+
+// -----------------------------------------------------------------------------
+// Categories — per plan (Dietician, Fitness, …) — CRUD
+// -----------------------------------------------------------------------------
+
+model Category {
+  id          String       @id @default(cuid())
+  planId      String       @map("plan_id")
+  name        String
+  slug        String // unique within plan
+  description String?
+  iconUrl     String?      @map("icon_url")
+  sortOrder   Int          @default(0) @map("sort_order")
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  plan      Plan       @relation(fields: [planId], references: [id], onDelete: Restrict)
+  templates Template[]
+  sites     Site[]
+
+  @@unique([planId, slug])
+  @@index([planId, status])
+  @@map("categories")
+}
+
+// -----------------------------------------------------------------------------
+// Master Templates — READ-ONLY for team edits; structure lives in Next.js code
+// -----------------------------------------------------------------------------
+
+model Template {
+  id            String       @id @default(cuid())
+  categoryId    String       @map("category_id")
+  name          String // e.g. "Dietician Template 1"
+  slug          String // unique within category
+  thumbnailUrl  String?      @map("thumbnail_url")
+  previewPath   String?      @map("preview_path") // e.g. /preview/dietician/template-1
+  componentKey  String       @map("component_key") // maps to React template component
+  sortOrder     Int          @default(0) @map("sort_order")
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  category        Category                 @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  schema          TemplateSchema?
+  allowedThemes   TemplateThemeAllowlist[]
+  sites           Site[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId, status])
+  @@map("templates")
+}
+
+// -----------------------------------------------------------------------------
+// Template Schema — editable field definitions + default content (JSON only)
+// Never store HTML. Structure is in Next.js; DB holds content + editor schema.
+// -----------------------------------------------------------------------------
+
+model TemplateSchema {
+  id                 String   @id @default(cuid())
+  templateId         String   @unique @map("template_id")
+  /// Visual editor field map: sections, fields, types, validation
+  schemaJson         Json     @map("schema_json")
+  /// Default copy/images when team creates a new site from this template
+  defaultContentJson Json     @map("default_content_json")
+  version            Int      @default(1) // bump when schema shape changes
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("template_schemas")
+}
+
+// -----------------------------------------------------------------------------
+// Themes — 5–7 base color families; each has 10 combination variants
+// -----------------------------------------------------------------------------
+
+model Theme {
+  id           String       @id @default(cuid())
+  name         String // e.g. "Green"
+  slug         String       @unique
+  primaryColor String       @map("primary_color") // hex
+  sortOrder    Int          @default(0) @map("sort_order")
+  status       RecordStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  combinations    ThemeCombination[]
+  templateAllow   TemplateThemeAllowlist[]
+  sites           Site[]
+
+  @@map("themes")
+}
+
+/// 10 style combinations per base theme (typography/spacing/accent presets)
+model ThemeCombination {
+  id              String       @id @default(cuid())
+  themeId         String       @map("theme_id")
+  name            String // e.g. "Green — Combination 3"
+  combinationIndex Int         @map("combination_index") // 1–10
+  tokensJson      Json         @map("tokens_json") // CSS variables: secondary, accent, radius, etc.
+  status          RecordStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  theme Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  sites Site[]
+
+  @@unique([themeId, combinationIndex])
+  @@map("theme_combinations")
+}
+
+/// Which themes a master template supports (optional restriction)
+model TemplateThemeAllowlist {
+  templateId String @map("template_id")
+  themeId    String @map("theme_id")
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  theme    Theme    @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, themeId])
+  @@map("template_theme_allowlist")
+}
+
+// -----------------------------------------------------------------------------
+// Team — agency staff who edit & publish (not end clients)
+// -----------------------------------------------------------------------------
+
+model TeamMember {
+  id        String         @id @default(cuid())
+  email     String         @unique
+  name      String
+  role      TeamMemberRole @default(EDITOR)
+  status    RecordStatus   @default(ACTIVE)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  sitesCreated    Site[]              @relation("SiteCreatedBy")
+  contentVersions SiteContentVersion[] @relation("ContentVersionAuthor")
+  publishLogs     SitePublishLog[]
+
+  @@map("team_members")
+}
+
+// -----------------------------------------------------------------------------
+// Sites — each published client site = duplicate of master template + edits
+// Subdomain: {slug}.PLATFORM_DOMAIN  |  Custom: custom_domain field
+// -----------------------------------------------------------------------------
+
+model Site {
+  id                 String     @id @default(cuid())
+  clientName         String     @map("client_name")
+  /// Subdomain slug: reeta → reeta.sites.youragency.com
+  slug               String     @unique
+  planId             String     @map("plan_id")
+  categoryId         String     @map("category_id")
+  templateId         String     @map("template_id")
+  themeId            String?    @map("theme_id")
+  themeCombinationId String?    @map("theme_combination_id")
+  status             SiteStatus @default(DRAFT)
+  /// Pointer to live content row when PUBLISHED
+  publishedVersionId String?    @unique @map("published_version_id")
+  publishedAt        DateTime?  @map("published_at")
+  createdById        String?    @map("created_by_id")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  plan               Plan                @relation(fields: [planId], references: [id], onDelete: Restrict)
+  category           Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  template           Template            @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  theme              Theme?              @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  themeCombination   ThemeCombination?   @relation(fields: [themeCombinationId], references: [id], onDelete: SetNull)
+  createdBy          TeamMember?         @relation("SiteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  publishedVersion   SiteContentVersion? @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+
+  contentVersions SiteContentVersion[] @relation("SiteVersions")
+  customDomains   SiteCustomDomain[]
+  publishLogs     SitePublishLog[]
+  mediaAssets     SiteMediaAsset[]
+
+  @@index([status])
+  @@index([planId, categoryId])
+  @@map("sites")
+}
+
+// -----------------------------------------------------------------------------
+// Site Content Versions — undo/redo; NEVER mutate master template
+// -----------------------------------------------------------------------------
+
+model SiteContentVersion {
+  id            String   @id @default(cuid())
+  siteId        String   @map("site_id")
+  versionNumber Int      @map("version_number")
+  label         String? // e.g. "After client feedback"
+  contentJson   Json     @map("content_json")
+  /// Snapshot of theme at save time (optional audit)
+  themeSnapshot Json?    @map("theme_snapshot")
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  site            Site        @relation("SiteVersions", fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy       TeamMember? @relation("ContentVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  publishedOnSite Site?       @relation("PublishedVersion")
+
+  @@unique([siteId, versionNumber])
+  @@index([siteId, createdAt(sort: Desc)])
+  @@map("site_content_versions")
+}
+
+// -----------------------------------------------------------------------------
+// Custom domains — client maps reetahealth.com → your platform
+// -----------------------------------------------------------------------------
+
+model SiteCustomDomain {
+  id                 String                   @id @default(cuid())
+  siteId             String                   @map("site_id")
+  domain             String                   @unique // apex or www
+  isPrimary          Boolean                  @default(false) @map("is_primary")
+  verificationStatus DomainVerificationStatus @default(PENDING) @map("verification_status")
+  verificationToken  String?                  @map("verification_token")
+  verifiedAt         DateTime?                @map("verified_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("site_custom_domains")
+}
+
+// -----------------------------------------------------------------------------
+// Media — uploaded bio/testimonial images per site (optional tracking)
+// -----------------------------------------------------------------------------
+
+model SiteMediaAsset {
+  id        String   @id @default(cuid())
+  siteId    String   @map("site_id")
+  fieldKey  String   @map("field_key") // e.g. hero.bioImage
+  url       String
+  mimeType  String?  @map("mime_type")
+  sizeBytes Int?     @map("size_bytes")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, fieldKey])
+  @@map("site_media_assets")
+}
+
+// -----------------------------------------------------------------------------
+// Publish audit trail
+// -----------------------------------------------------------------------------
+
+model SitePublishLog {
+  id              String   @id @default(cuid())
+  siteId          String   @map("site_id")
+  contentVersionId String @map("content_version_id")
+  publishedById   String?  @map("published_by_id")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  site          Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  publishedBy   TeamMember?      @relation(fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@index([siteId, createdAt(sort: Desc)])
+  @@map("site_publish_logs")
+}
