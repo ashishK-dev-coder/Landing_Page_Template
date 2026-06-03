@@ -42,6 +42,20 @@ Landing_Page_Template/
 6. **Restart** `npm run dev` after changing `.env`
 7. Open http://localhost:3000/preview/starter/dietician/template-1
 
+### Supabase + Vercel (important)
+
+For production deploys on Vercel with Prisma:
+
+- Set `DATABASE_URL` to Supabase **Transaction Pooler** URL (`:6543`) with `sslmode=require`.
+- Set `DIRECT_URL` to Supabase **direct** URL (`db.<project-ref>.supabase.co:5432`) with `sslmode=require`.
+
+Example:
+
+```env
+DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require&schema=website_centralised_backend"
+DIRECT_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require&schema=website_centralised_backend"
+```
+
 ### `.env` minimum
 
 ```env
